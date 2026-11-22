@@ -3,7 +3,12 @@ import os
 import time
 from urllib.parse import urlparse
 
-from scraper_engine import send_item_to_telegram, smart_scrape
+from scraper_engine import (
+    load_urls_file,
+    poll_and_handle_telegram_commands,
+    send_item_to_telegram,
+    smart_scrape,
+)
 
 URLS_FILE = "urls.json"
 HISTORY_FILE = "sent_history.json"
@@ -27,11 +32,25 @@ def save_json(path: str, data) -> None:
 def main() -> None:
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    gh_token = os.environ.get("GITHUB_TOKEN", "").strip()
+    gh_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
 
     if not token or not chat_id:
         raise ValueError("TELEGRAM_BOT_TOKEN dan TELEGRAM_CHAT_ID wajib diisi di GitHub Repository Secrets!")
 
-    targets = load_json(URLS_FILE, [])
+    # Langkah 1: Proses perintah chat yang masuk dari Telegram
+    print("[*] Memeriksa perintah masuk dari Telegram...")
+    cmd_count = poll_and_handle_telegram_commands(
+        token=token,
+        allowed_chat_id=chat_id,
+        urls_file=URLS_FILE,
+        gh_token=gh_token,
+        gh_repo=gh_repo,
+    )
+    print(f"[*] Perintah Telegram diproses: {cmd_count}")
+
+    # Langkah 2: Auto-Scrape & Auto-Kirim berita baru dari daftar tersimpan
+    targets = load_urls_file(URLS_FILE)
     history: list[str] = load_json(HISTORY_FILE, [])
     sent_set = set(history)
     total_new_sent = 0
@@ -43,11 +62,16 @@ def main() -> None:
 
         name = target.get("name") or urlparse(url).netloc
         selector = target.get("selector", "")
-        limit = int(target.get("limit", 5))
+        limit = int(target.get("limit", 4))
 
-        print(f"[*] Memeriksa: {name} ({url})")
+        print(f"[*] Mengecek berita baru: {name} ({url})")
         try:
-            items, _ = smart_scrape(url=url, custom_selector=selector, limit=limit, deep_fetch_image=True)
+            items, _ = smart_scrape(
+                url=url,
+                custom_selector=selector,
+                limit=limit,
+                include_summary=True,
+            )
         except Exception as e:
             print(f"[!] Gagal scraping {url}: {e}")
             continue
@@ -72,7 +96,6 @@ def main() -> None:
             except Exception as e:
                 print(f"    [!] Gagal kirim item: {e}")
 
-    # Simpan maksimal 500 riwayat link terakhir agar tidak mengirim berita duplikat
     save_json(HISTORY_FILE, history[-500:])
     print(f"[✓] Selesai. Total berita baru terkirim: {total_new_sent}")
 
