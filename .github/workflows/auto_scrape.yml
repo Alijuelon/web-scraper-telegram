@@ -1,0 +1,37 @@
+name: Auto Scrape ke Telegram
+
+on:
+  schedule:
+    # Berjalan otomatis setiap 3 jam sekali (UTC)
+    - cron: "0 */3 * * *"
+  workflow_dispatch: # Memungkinkan tombol "Run workflow" manual di tab Actions
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Pulihkan riwayat berita terkirim (anti-duplikat)
+        uses: actions/cache@v4
+        with:
+          path: sent_history.json
+          key: sent-history-${{ github.run_id }}
+          restore-keys: |
+            sent-history-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Jalankan Auto Scraper
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python auto_scrape.py
