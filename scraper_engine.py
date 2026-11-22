@@ -44,6 +44,21 @@ def _clean_text(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def _matches_keywords(text: str, keywords: list[str] | None) -> bool:
+    """Mencocokkan kata kunci menggunakan batas kata agar 'ai' tidak cocok dengan 'selesai'/'baik'."""
+    if not keywords:
+        return True
+    cleaned = _clean_text(text)
+    for kw in keywords:
+        kw_clean = kw.strip()
+        if not kw_clean:
+            continue
+        pattern = r"\b" + re.escape(kw_clean) + r"\b"
+        if re.search(pattern, cleaned, flags=re.IGNORECASE):
+            return True
+    return False
+
+
 def _is_valid_image_url(img_url: str | None) -> bool:
     if not img_url or img_url.startswith("data:image"):
         return False
@@ -75,7 +90,6 @@ def extract_image_from_tag(element, base_url: str) -> str | None:
 
 
 def _summarize_paragraphs(paragraphs: list[str], max_chars: int = 440) -> str:
-    """Menyusun ringkasan 2-3 kalimat pertama yang padat agar aman di caption Telegram."""
     if not paragraphs:
         return ""
 
@@ -198,8 +212,9 @@ def smart_scrape(
     custom_selector: str = "",
     limit: int = 4,
     include_summary: bool = True,
+    keywords: list[str] | None = None,
 ) -> tuple[list[dict], str | None]:
-    """Mengambil judul, ringkasan isi berita, tautan, dan gambar secara otomatis."""
+    """Mengambil judul, ringkasan isi berita, tautan, dan gambar dengan filter kata kunci opsional."""
     resp = requests.get(url, headers=HEADERS, timeout=15)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.text, "html.parser")
@@ -214,15 +229,13 @@ def smart_scrape(
         containers = soup.select(custom_selector.strip())
     else:
         containers = soup.find_all("article")
-        if len(containers) < 3:
-            extra = [
-                el
-                for el in soup.find_all(["div", "li"])
-                if el.find("a", href=True) and el.find("img") and len(el.find_all("article")) == 0
-            ]
-            containers.extend(extra)
-        if len(containers) < 3:
-            containers.extend(soup.find_all(["h2", "h3"]))
+        extra = [
+            el
+            for el in soup.find_all(["div", "li"])
+            if el.find("a", href=True) and el.find("img") and len(el.find_all("article")) == 0
+        ]
+        containers.extend(extra)
+        containers.extend(soup.find_all(["h2", "h3", "h4"]))
 
     results = []
     seen_urls = set()
@@ -239,6 +252,11 @@ def smart_scrape(
 
         parsed_link = urlparse(clean_link)
         if parsed_link.path in ("", "/"):
+            continue
+
+        # Cek kecocokan kata kunci (dari judul maupun slug URL) sebelum mengunduh detail artikel
+        slug_text = parsed_link.path.replace("-", " ").replace("/", " ")
+        if keywords and not _matches_keywords(f"{title} {slug_text}", keywords):
             continue
 
         img_url = extract_image_from_tag(el, url)
@@ -390,7 +408,7 @@ def load_urls_file(urls_file: str = "urls.json") -> list[dict]:
                 return json.load(f)
         except Exception:
             pass
-    return [{"name": "Detik News", "url": "https://news.detik.com/", "selector": "", "limit": 4}]
+    return [{"name": "Detik • CPNS", "url": "https://www.detik.com/", "selector": "", "keywords": ["cpns", "casn", "pppk"], "limit": 3}]
 
 
 def save_urls_file(
@@ -488,11 +506,13 @@ def poll_and_handle_telegram_commands(
         if lower_text in ("/start", "/help"):
             help_msg = (
                 "🤖 <b>Perintah ScrapGram Bot</b>\n\n"
-                "• <code>/scrape</code> — Scrape semua website tersimpan sekarang\n"
-                "• <code>https://contoh.com</code> — Kirim link langsung untuk di-scrape instan\n"
-                "• <code>/list</code> — Lihat daftar website tersimpan\n"
-                "• <code>/add https://contoh.com</code> — Simpan website baru\n"
-                "• <code>/del 1</code> — Hapus website nomor 1 dari daftar"
+                "• <code>/scrape</code> — Scrape semua portal CPNS & AI tersimpan\n"
+                "• <code>/cpns</code> — Scrape khusus berita CPNS dari semua portal\n"
+                "• <code>/ai</code> — Scrape khusus berita AI dari semua portal\n"
+                "• <code>https://contoh.com</code> — Kirim link langsung untuk di-scrape\n"
+                "• <code>/list</code> — Lihat daftar portal tersimpan\n"
+                "• <code>/add https://contoh.com</code> — Simpan portal baru\n"
+                "• <code>/del 1</code> — Hapus nomor 1 dari daftar"
             )
             send_telegram_text(token, chat_id, help_msg)
 
@@ -505,7 +525,7 @@ def poll_and_handle_telegram_commands(
                     f"<b>{i}. {html.escape(u['name'])}</b>\n{html.escape(u['url'])}"
                     for i, u in enumerate(saved, 1)
                 ]
-                send_telegram_text(token, chat_id, "📌 <b>Daftar Website Tersimpan:</b>\n\n" + "\n\n".join(lines))
+                send_telegram_text(token, chat_id, "📌 <b>Daftar Portal Tersimpan:</b>\n\n" + "\n\n".join(lines))
 
         elif lower_text.startswith("/add "):
             new_url = text.split(" ", 1)[1].strip()
@@ -513,13 +533,10 @@ def poll_and_handle_telegram_commands(
                 new_url = "https://" + new_url
             domain = urlparse(new_url).netloc.replace("www.", "") or new_url
             saved = load_urls_file(urls_file)
-            if any(u["url"] == new_url for u in saved):
-                send_telegram_text(token, chat_id, f"ℹ️ <b>{html.escape(domain)}</b> sudah ada di daftar.")
-            else:
-                saved.append({"name": domain, "url": new_url, "selector": "", "limit": 4})
-                synced = save_urls_file(saved, urls_file, gh_token, gh_repo)
-                note = " (tersinkron ke GitHub)" if synced else ""
-                send_telegram_text(token, chat_id, f"✅ Berhasil menyimpan <b>{html.escape(domain)}</b>{note}.")
+            saved.append({"name": domain, "url": new_url, "selector": "", "keywords": [], "limit": 3})
+            synced = save_urls_file(saved, urls_file, gh_token, gh_repo)
+            note = " (tersinkron ke GitHub)" if synced else ""
+            send_telegram_text(token, chat_id, f"✅ Berhasil menyimpan <b>{html.escape(domain)}</b>{note}.")
 
         elif lower_text.startswith("/del "):
             arg = text.split(" ", 1)[1].strip()
@@ -531,13 +548,13 @@ def poll_and_handle_telegram_commands(
             else:
                 send_telegram_text(token, chat_id, "⚠️ Nomor tidak valid. Cek nomor dengan /list.")
 
-        elif lower_text.startswith("/scrape") or lower_text.startswith(("http://", "https://")):
+        elif lower_text in ("/cpns", "/ai") or lower_text.startswith("/scrape") or lower_text.startswith(("http://", "https://")):
             parts = text.split(" ", 1)
             target_url = ""
 
             if lower_text.startswith(("http://", "https://")):
                 target_url = text.strip()
-            elif len(parts) > 1 and parts[1].strip():
+            elif lower_text.startswith("/scrape") and len(parts) > 1 and parts[1].strip():
                 target_url = parts[1].strip()
                 if not target_url.startswith(("http://", "https://")):
                     target_url = "https://" + target_url
@@ -557,18 +574,33 @@ def poll_and_handle_telegram_commands(
                     send_telegram_text(token, chat_id, f"❌ Gagal scraping: {html.escape(str(e))}")
             else:
                 saved = load_urls_file(urls_file)
-                send_telegram_text(token, chat_id, f"⏳ Memulai scraping untuk {len(saved)} website tersimpan...")
+                if lower_text == "/cpns":
+                    saved = [s for s in saved if "cpns" in s.get("name", "").lower()]
+                elif lower_text == "/ai":
+                    saved = [s for s in saved if "ai" in s.get("name", "").lower()]
+
+                send_telegram_text(token, chat_id, f"⏳ Memulai scraping untuk {len(saved)} sumber berita...")
+                total_sent = 0
                 for entry in saved:
                     u_url = entry["url"]
                     u_name = entry.get("name") or urlparse(u_url).netloc
-                    u_limit = int(entry.get("limit", 4))
+                    u_limit = int(entry.get("limit", 3))
                     u_sel = entry.get("selector", "")
+                    u_kw = entry.get("keywords", [])
                     try:
-                        items, _ = smart_scrape(url=u_url, custom_selector=u_sel, limit=u_limit, include_summary=True)
+                        items, _ = smart_scrape(
+                            url=u_url,
+                            custom_selector=u_sel,
+                            limit=u_limit,
+                            include_summary=True,
+                            keywords=u_kw,
+                        )
                         for item in items:
                             send_item_to_telegram(token, chat_id, item, u_url, badge=f"📌 {u_name}")
+                            total_sent += 1
                             time.sleep(0.35)
-                    except Exception as e:
-                        send_telegram_text(token, chat_id, f"❌ Error pada {html.escape(u_name)}: {html.escape(str(e))}")
+                    except Exception:
+                        pass
+                send_telegram_text(token, chat_id, f"✅ Selesai! Total {total_sent} berita terkirim.")
 
     return handled_count
