@@ -1,8 +1,114 @@
 [
   {
-    "name": "Detik News",
-    "url": "https://news.detik.com/",
+    "name": "Detik • CPNS",
+    "url": "https://www.detik.com/",
     "selector": "",
-    "limit": 5
+    "keywords": ["cpns", "casn", "pppk", "asn", "bkn", "sscasn", "formasi"],
+    "limit": 3
+  },
+  {
+    "name": "Kompas • CPNS",
+    "url": "https://www.kompas.com/",
+    "selector": "",
+    "keywords": ["cpns", "casn", "pppk", "asn", "bkn", "sscasn", "formasi"],
+    "limit": 3
+  },
+  {
+    "name": "CNBC Indonesia • CPNS",
+    "url": "https://www.cnbcindonesia.com/",
+    "selector": "",
+    "keywords": ["cpns", "casn", "pppk", "asn", "bkn", "sscasn", "formasi"],
+    "limit": 3
+  },
+  {
+    "name": "CNN Indonesia • CPNS",
+    "url": "https://www.cnnindonesia.com/",
+    "selector": "",
+    "keywords": ["cpns", "casn", "pppk", "asn", "bkn", "sscasn", "formasi"],
+    "limit": 3
+  },
+  {
+    "name": "Liputan6 • CPNS",
+    "url": "https://www.liputan6.com/",
+    "selector": "",
+    "keywords": ["cpns", "casn", "pppk", "asn", "bkn", "sscasn", "formasi"],
+    "limit": 3
+  },
+  {
+    "name": "Tempo • CPNS",
+    "url": "https://www.tempo.co/",
+    "selector": "",
+    "keywords": ["cpns", "casn", "pppk", "asn", "bkn", "sscasn", "formasi"],
+    "limit": 3
+  },
+  {
+    "name": "Antara News • CPNS",
+    "url": "https://www.antaranews.com/",
+    "selector": "",
+    "keywords": ["cpns", "casn", "pppk", "asn", "bkn", "sscasn", "formasi"],
+    "limit": 3
+  },
+  {
+    "name": "Kumparan • CPNS",
+    "url": "https://kumparan.com/",
+    "selector": "",
+    "keywords": ["cpns", "casn", "pppk", "asn", "bkn", "sscasn", "formasi"],
+    "limit": 3
+  },
+  {
+    "name": "Detik • AI",
+    "url": "https://www.detik.com/",
+    "selector": "",
+    "keywords": ["ai", "artificial intelligence", "kecerdasan buatan", "chatgpt", "openai", "gemini", "deepseek", "llm"],
+    "limit": 3
+  },
+  {
+    "name": "Kompas • AI",
+    "url": "https://www.kompas.com/",
+    "selector": "",
+    "keywords": ["ai", "artificial intelligence", "kecerdasan buatan", "chatgpt", "openai", "gemini", "deepseek", "llm"],
+    "limit": 3
+  },
+  {
+    "name": "CNN Indonesia • AI",
+    "url": "https://www.cnnindonesia.com/",
+    "selector": "",
+    "keywords": ["ai", "artificial intelligence", "kecerdasan buatan", "chatgpt", "openai", "gemini", "deepseek", "llm"],
+    "limit": 3
+  },
+  {
+    "name": "CNBC Indonesia • AI",
+    "url": "https://www.cnbcindonesia.com/",
+    "selector": "",
+    "keywords": ["ai", "artificial intelligence", "kecerdasan buatan", "chatgpt", "openai", "gemini", "deepseek", "llm"],
+    "limit": 3
+  },
+  {
+    "name": "Liputan6 • AI",
+    "url": "https://www.liputan6.com/",
+    "selector": "",
+    "keywords": ["ai", "artificial intelligence", "kecerdasan buatan", "chatgpt", "openai", "gemini", "deepseek", "llm"],
+    "limit": 3
+  },
+  {
+    "name": "Tempo • AI",
+    "url": "https://www.tempo.co/",
+    "selector": "",
+    "keywords": ["ai", "artificial intelligence", "kecerdasan buatan", "chatgpt", "openai", "gemini", "deepseek", "llm"],
+    "limit": 3
+  },
+  {
+    "name": "Antara News • AI",
+    "url": "https://www.antaranews.com/",
+    "selector": "",
+    "keywords": ["ai", "artificial intelligence", "kecerdasan buatan", "chatgpt", "openai", "gemini", "deepseek", "llm"],
+    "limit": 3
+  },
+  {
+    "name": "Kumparan • AI",
+    "url": "https://kumparan.com/",
+    "selector": "",
+    "keywords": ["ai", "artificial intelligence", "kecerdasan buatan", "chatgpt", "openai", "gemini", "deepseek", "llm"],
+    "limit": 3
   }
 ]
