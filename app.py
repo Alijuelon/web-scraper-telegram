@@ -110,8 +110,8 @@ st.markdown(
 default_token = ""
 default_chat_id = ""
 try:
-    default_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
-    default_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "")
+    default_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "AAEdUnWdpv78l2sGcgOJay69zAGFR7lfdvE")
+    default_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "5874026623")
 except Exception:
     pass
 
