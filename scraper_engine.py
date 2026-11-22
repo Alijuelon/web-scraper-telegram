@@ -4,6 +4,7 @@ import io
 import json
 import os
 import re
+import threading
 import time
 from urllib.parse import urljoin, urlparse
 
@@ -34,6 +35,9 @@ NOISE_PREFIXES = (
     "penulis:",
     "editor:",
 )
+
+_POLL_LOCK = threading.Lock()
+_WEBHOOK_CLEARED = False
 
 
 def _clean_text(text: str) -> str:
@@ -70,8 +74,8 @@ def extract_image_from_tag(element, base_url: str) -> str | None:
     return None
 
 
-def _summarize_paragraphs(paragraphs: list[str], max_chars: int = 480) -> str:
-    """Menyusun ringkasan 2-3 kalimat pertama yang informatif agar pas di caption Telegram."""
+def _summarize_paragraphs(paragraphs: list[str], max_chars: int = 440) -> str:
+    """Menyusun ringkasan 2-3 kalimat pertama yang padat agar aman di caption Telegram."""
     if not paragraphs:
         return ""
 
@@ -103,7 +107,6 @@ def fetch_article_content_and_image(article_url: str) -> tuple[str, str | None]:
         res.raise_for_status()
         soup = BeautifulSoup(res.text, "html.parser")
 
-        # 1. Ambil gambar utama artikel
         og_image = None
         meta = soup.find("meta", property="og:image") or soup.find("meta", attrs={"name": "twitter:image"})
         if meta and meta.get("content"):
@@ -111,11 +114,9 @@ def fetch_article_content_and_image(article_url: str) -> tuple[str, str | None]:
             if _is_valid_image_url(cand):
                 og_image = cand
 
-        # 2. Hapus elemen pengganggu
         for noisy in soup(["script", "style", "nav", "footer", "header", "aside", "figcaption", "form"]):
             noisy.decompose()
 
-        # 3. Cari wadah utama isi artikel (mendukung struktur portal berita Indonesia & umum)
         body_selectors = [
             ".detail__body-text",
             ".read__content",
@@ -137,7 +138,6 @@ def fetch_article_content_and_image(article_url: str) -> tuple[str, str | None]:
         valid_paragraphs = []
 
         for p in target_scope.find_all("p"):
-            # Abaikan paragraf di dalam kotak "Baca Juga"
             parent_classes = " ".join(p.parent.get("class", [])).lower() if p.parent else ""
             if any(k in parent_classes for k in ("baca-juga", "related", "sisip", "embed", "caption")):
                 continue
@@ -156,15 +156,14 @@ def fetch_article_content_and_image(article_url: str) -> tuple[str, str | None]:
             if len(valid_paragraphs) >= 5:
                 break
 
-        summary = _summarize_paragraphs(valid_paragraphs, max_chars=480)
+        summary = _summarize_paragraphs(valid_paragraphs, max_chars=440)
 
-        # Fallback ke meta description jika paragraf tidak terbaca
         if not summary:
             desc_meta = soup.find("meta", attrs={"name": "description"}) or soup.find(
                 "meta", property="og:description"
             )
             if desc_meta and desc_meta.get("content"):
-                summary = _clean_text(desc_meta["content"])[:450]
+                summary = _clean_text(desc_meta["content"])[:420]
 
         return summary, og_image
     except Exception:
@@ -197,7 +196,7 @@ def _extract_best_headline(container, base_url: str) -> tuple[str, str | None]:
 def smart_scrape(
     url: str,
     custom_selector: str = "",
-    limit: int = 5,
+    limit: int = 4,
     include_summary: bool = True,
 ) -> tuple[list[dict], str | None]:
     """Mengambil judul, ringkasan isi berita, tautan, dan gambar secara otomatis."""
@@ -222,6 +221,8 @@ def smart_scrape(
                 if el.find("a", href=True) and el.find("img") and len(el.find_all("article")) == 0
             ]
             containers.extend(extra)
+        if len(containers) < 3:
+            containers.extend(soup.find_all(["h2", "h3"]))
 
     results = []
     seen_urls = set()
@@ -243,7 +244,6 @@ def smart_scrape(
         img_url = extract_image_from_tag(el, url)
         summary = ""
 
-        # Buka halaman artikel untuk mengambil ringkasan isi & gambar HD (og:image)
         if include_summary or not img_url:
             fetched_summary, fetched_img = fetch_article_content_and_image(clean_link)
             if include_summary:
@@ -317,12 +317,14 @@ def send_item_to_telegram(
     badge: str = "",
 ) -> bool:
     """Mengirim 1 kartu berita lengkap: Gambar + Judul + Ringkasan Isi + Link."""
-    safe_title = html.escape(item["title"][:220])
+    safe_badge = html.escape(badge[:80])
+    safe_title = html.escape(item["title"][:200])
     safe_link = html.escape(item["link"], quote=True)
-    header_line = f"<i>{html.escape(badge)}</i>\n" if badge else ""
+    header_line = f"<i>{safe_badge}</i>\n" if safe_badge else ""
 
     summary_text = item.get("summary", "").strip()
-    summary_block = f"\n\n📝 {html.escape(summary_text[:520])}" if summary_text else ""
+    safe_summary = html.escape(summary_text[:450])
+    summary_block = f"\n\n📝 {safe_summary}" if safe_summary else ""
 
     caption = f'{header_line}<b>{safe_title}</b>{summary_block}\n\n🔗 <a href="{safe_link}">Baca Selengkapnya</a>'
 
@@ -333,7 +335,7 @@ def send_item_to_telegram(
                 f"https://api.telegram.org/bot{token}/sendPhoto",
                 data={
                     "chat_id": chat_id,
-                    "caption": caption[:1024],
+                    "caption": caption,
                     "parse_mode": "HTML",
                 },
                 files={"photo": ("news.jpg", img_bytes, "image/jpeg")},
@@ -381,7 +383,6 @@ def test_telegram_connection(token: str, chat_id: str) -> tuple[bool, str]:
         return False, str(e)
 
 
-# --- MANAJEMEN URL & PEMROSES PERINTAH DARI TELEGRAM ---
 def load_urls_file(urls_file: str = "urls.json") -> list[dict]:
     if os.path.exists(urls_file):
         try:
@@ -432,39 +433,45 @@ def poll_and_handle_telegram_commands(
     gh_token: str = "",
     gh_repo: str = "",
 ) -> int:
-    """
-    Mengecek pesan perintah baru dari Telegram dan langsung mengeksekusinya.
-    Mengembalikan jumlah perintah yang diproses.
-    """
+    """Mengecek perintah baru dari chat Telegram dan langsung mengeksekusinya."""
+    global _WEBHOOK_CLEARED
+
     if not token or not allowed_chat_id:
         return 0
 
-    try:
-        res = requests.get(
-            f"https://api.telegram.org/bot{token}/getUpdates",
-            params={"timeout": 2, "allowed_updates": '["message"]'},
-            timeout=8,
-        ).json()
-    except Exception:
-        return 0
+    with _POLL_LOCK:
+        if not _WEBHOOK_CLEARED:
+            try:
+                requests.get(f"https://api.telegram.org/bot{token}/deleteWebhook", timeout=5)
+                _WEBHOOK_CLEARED = True
+            except Exception:
+                pass
 
-    if not res.get("ok"):
-        return 0
+        try:
+            res = requests.get(
+                f"https://api.telegram.org/bot{token}/getUpdates",
+                params={"timeout": 2, "allowed_updates": '["message"]'},
+                timeout=8,
+            ).json()
+        except Exception:
+            return 0
 
-    updates = res.get("result", [])
-    if not updates:
-        return 0
+        if not res.get("ok"):
+            return 0
 
-    # Langsung tandai semua update sebagai sudah dibaca agar tidak diproses ganda
-    max_update_id = max(u["update_id"] for u in updates)
-    try:
-        requests.get(
-            f"https://api.telegram.org/bot{token}/getUpdates",
-            params={"offset": max_update_id + 1, "timeout": 1},
-            timeout=5,
-        )
-    except Exception:
-        pass
+        updates = res.get("result", [])
+        if not updates:
+            return 0
+
+        max_update_id = max(u["update_id"] for u in updates)
+        try:
+            requests.get(
+                f"https://api.telegram.org/bot{token}/getUpdates",
+                params={"offset": max_update_id + 1, "timeout": 1},
+                timeout=5,
+            )
+        except Exception:
+            pass
 
     handled_count = 0
     for upd in updates:
@@ -472,14 +479,12 @@ def poll_and_handle_telegram_commands(
         chat_id = str(msg.get("chat", {}).get("id", ""))
         text = (msg.get("text") or "").strip()
 
-        # Hanya layani perintah dari Chat ID pemilik
         if not text or chat_id != str(allowed_chat_id).strip():
             continue
 
         handled_count += 1
         lower_text = text.lower()
 
-        # 1. Perintah /help atau /start
         if lower_text in ("/start", "/help"):
             help_msg = (
                 "🤖 <b>Perintah ScrapGram Bot</b>\n\n"
@@ -491,16 +496,17 @@ def poll_and_handle_telegram_commands(
             )
             send_telegram_text(token, chat_id, help_msg)
 
-        # 2. Perintah /list
         elif lower_text == "/list":
             saved = load_urls_file(urls_file)
             if not saved:
                 send_telegram_text(token, chat_id, "📭 Belum ada website tersimpan.")
             else:
-                lines = [f"<b>{i}. {html.escape(u['name'])}</b>\n{html.escape(u['url'])}" for i, u in enumerate(saved, 1)]
+                lines = [
+                    f"<b>{i}. {html.escape(u['name'])}</b>\n{html.escape(u['url'])}"
+                    for i, u in enumerate(saved, 1)
+                ]
                 send_telegram_text(token, chat_id, "📌 <b>Daftar Website Tersimpan:</b>\n\n" + "\n\n".join(lines))
 
-        # 3. Perintah /add <url>
         elif lower_text.startswith("/add "):
             new_url = text.split(" ", 1)[1].strip()
             if not new_url.startswith(("http://", "https://")):
@@ -515,7 +521,6 @@ def poll_and_handle_telegram_commands(
                 note = " (tersinkron ke GitHub)" if synced else ""
                 send_telegram_text(token, chat_id, f"✅ Berhasil menyimpan <b>{html.escape(domain)}</b>{note}.")
 
-        # 4. Perintah /del <nomor>
         elif lower_text.startswith("/del "):
             arg = text.split(" ", 1)[1].strip()
             saved = load_urls_file(urls_file)
@@ -526,7 +531,6 @@ def poll_and_handle_telegram_commands(
             else:
                 send_telegram_text(token, chat_id, "⚠️ Nomor tidak valid. Cek nomor dengan /list.")
 
-        # 5. Perintah /scrape atau kirim URL langsung
         elif lower_text.startswith("/scrape") or lower_text.startswith(("http://", "https://")):
             parts = text.split(" ", 1)
             target_url = ""
@@ -552,7 +556,6 @@ def poll_and_handle_telegram_commands(
                 except Exception as e:
                     send_telegram_text(token, chat_id, f"❌ Gagal scraping: {html.escape(str(e))}")
             else:
-                # Scrape semua website yang tersimpan di urls.json
                 saved = load_urls_file(urls_file)
                 send_telegram_text(token, chat_id, f"⏳ Memulai scraping untuk {len(saved)} website tersimpan...")
                 for entry in saved:
