@@ -88,8 +88,8 @@ default_chat_id = ""
 gh_token = ""
 gh_repo = ""
 try:
-    default_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "")
-    default_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "")
+    default_token = st.secrets.get("TELEGRAM_BOT_TOKEN", "8754619232:AAH6FR7HO8s0CdGdnU6JflELl94IKHM2FTg")
+    default_chat_id = st.secrets.get("TELEGRAM_CHAT_ID", "5874026623")
     gh_token = st.secrets.get("GITHUB_TOKEN", "")
     gh_repo = st.secrets.get("GITHUB_REPO", "")
 except Exception:
